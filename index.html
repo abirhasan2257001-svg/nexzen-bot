@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexzen Publisher</title><style>
+body{background:#0b0b0c;color:#fff;font-family:system-ui;padding:16px;max-width:520px;margin:auto}
+h1{font-size:20px}input,textarea,button{width:100%;margin:6px 0;padding:12px;border-radius:10px;border:1px solid #333;background:#151517;color:#fff;font-size:15px}
+button{background:#fff;color:#000;font-weight:700;border:none}textarea{min-height:90px}
+#out{white-space:pre-wrap;background:#151517;padding:10px;border-radius:10px;margin-top:10px;font-size:13px}
+label{font-size:12px;color:#888}</style></head><body>
+<h1>⬛ Nexzen Publisher</h1>
+<label>Admin Key</label><input id="key" type="password" placeholder="key">
+<label>Cover Image</label><input id="img" type="file" accept="image/*">
+<label>App Name</label><input id="name" placeholder="OxiSpeak">
+<label>Version</label><input id="ver" placeholder="v1.0">
+<label>Features (per line)</label><textarea id="feat">300+ AI voices
+Podcast Studio — exact-gap master audio
+Cinematic onboarding 🤝
+Free forever plan</textarea>
+<label>Direct Download URL</label><input id="dl" placeholder="https://...apk">
+<label>Fast Download URL (optional)</label><input id="dl2" placeholder="https://...">
+<label>GitHub Repo URL (optional)</label><input id="repo" placeholder="https://github.com/...">
+<button onclick="go()">🚀 POST TO CHANNEL</button>
+<div id="out"></div>
+<script>
+function go(){
+ const f=document.getElementById('img').files[0];
+ const rd=new FileReader();
+ rd.onload=async()=>{
+  const body={key:key.value,img:rd.result,name:name.value,ver:ver.value,
+   features:feat.value.split('\n').filter(x=>x.trim()),dl:dl.value,dl2:dl2.value,repoUrl:repo.value};
+  out.textContent='posting...';
+  const r=await fetch('/api/post',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();out.textContent=JSON.stringify(j,null,1);
+ };
+ if(f)rd.readAsDataURL(f);else{out.textContent='cover select koro!';}
+}
+</script></body></html>
