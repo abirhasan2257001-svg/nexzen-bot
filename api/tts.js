@@ -23,8 +23,8 @@ function synth(text, voice, rate, pitch) {
     const muid = crypto.randomBytes(16).toString('hex').toUpperCase();
     const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TOKEN}&ConnectionId=${crypto.randomUUID().replace(/-/g,'')}&Sec-MS-GEC=${secMsGec()}&Sec-MS-GEC-Version=${GEC_VER}`;
     const ws = new WebSocket(url, { headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache', 'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold', 'Sec-WebSocket-Version': '13', 'User-Agent': UA, 'Accept-Encoding': 'gzip, deflate, br, zstd', 'Accept-Language': 'en-US,en;q=0.9', 'Cookie': `muid=${muid};` } });
-    const parts = []; let done = false;
-    const timer = setTimeout(() => { if (!done) { done = true; try { ws.close(); } catch {} reject(new Error('tts timeout 50s')); } }, 50000);
+    const parts = []; let done = false; const logs = [];
+    const timer = setTimeout(() => { if (!done) { done = true; try { ws.close(); } catch {} reject(new Error('tts timeout 50s - logs: ' + logs.join(' | '))); } }, 50000);
     const fail = e => { if (!done) { done = true; clearTimeout(timer); try { ws.close(); } catch {} reject(e); } };
     ws.on('open', () => {
       const ds = dateToStr();
@@ -32,19 +32,37 @@ function synth(text, voice, rate, pitch) {
       ws.send(`X-RequestId:${rid}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ds}Z\r\nPath:ssml\r\n\r\n<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='${voice}'><prosody pitch='${pitch}' rate='${rate}' volume='+0%'>${esc(text)}</prosody></voice></speak>`);
     });
     ws.on('message', (data, isBinary) => {
-      if (!isBinary) { const s = data.toString(); if (s.includes('Path:turn.end') && !done) { done = true; clearTimeout(timer); try { ws.close(); } catch {} resolve(Buffer.concat(parts)); } return; }
+      if (!isBinary) {
+        const s = data.toString();
+        logs.push('text:' + s.slice(0, 80));
+        if (s.includes('Path:turn.end') && !done) {
+          done = true; clearTimeout(timer); try { ws.close(); } catch {}
+          resolve({ audio: Buffer.concat(parts), logs });
+        }
+        return;
+      }
       const hlen = data.readUInt16BE(0);
       const header = data.subarray(2, 2 + hlen).toString();
-      if (header.startsWith('Path:audio')) { const audio = data.subarray(2 + hlen); if (audio.length) parts.push(audio); }
+      if (header.includes('Path:audio')) {
+        const audio = data.subarray(2 + hlen);
+        logs.push('audio:' + audio.length);
+        if (audio.length) parts.push(audio);
+      } else {
+        logs.push('bin-hdr:' + header.slice(0, 60));
+      }
     });
-    ws.on('error', fail);
-    ws.on('close', () => fail(new Error('ws closed early')));
+    ws.on('error', e => fail(new Error('ws error: ' + e.message + ' - logs: ' + logs.join(' | '))));
+    ws.on('close', () => fail(new Error('ws closed early - logs: ' + logs.join(' | '))));
   });
 }
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false });
   const { text, voice, rate = '+0%', pitch = '+0Hz' } = req.body || {};
   if (!text || !voice) return res.status(400).json({ ok: false, error: 'text+voice required' });
-  try { const buf = await synth(text, voice, rate, pitch); res.status(200).json({ ok: true, base64: buf.toString('base64') }); }
-  catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+  try {
+    const r = await synth(text, voice, rate, pitch);
+    res.status(200).json({ ok: true, base64: r.audio.toString('base64'), logs: r.logs });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
 }
